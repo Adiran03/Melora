@@ -96,7 +96,7 @@ def get_liked_sigs() -> set:
 
 def get_likes() -> list[dict]:
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM likes ORDER BY liked_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM likes ORDER BY liked_at DESC, rowid DESC").fetchall()
         out = []
         for r in rows:
             d = dict(r)

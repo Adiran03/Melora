@@ -1011,191 +1011,196 @@ def _catalog_recording(artist, title, liked_sigs, dis):
     return None
 
 
+def _wave_artist_id(name, seed, liked_sigs, dis):
+    if seed:
+        track = _catalog_recording(name, seed["title"], liked_sigs, dis)
+        if track and track["artist_id"].startswith("dz_art_"):
+            return int(track["artist_id"].removeprefix("dz_art_"))
+    return _deezer_artist_id(name)
+
+
+def _wave_seeds(seed_tracks, liked_ids, disliked_artists):
+    names, favorites, history = {}, {}, {}
+    for track in seed_tracks:
+        name = _primary_credit(track["artist"])
+        name = ARTIST_ALIASES.get(_search_text(name), name)
+        key = _artist_key(name)
+        if not key or name == "Исполнитель" or db.normalize_artist(name) in disliked_artists:
+            continue
+        names.setdefault(key, name)
+        if track.get("liked") or track["video_id"] in liked_ids:
+            favorites.setdefault(key, []).append(track)
+        elif key not in history:
+            history[key] = [track]
+    return names, favorites, history
+
+
+def _wave_suggestions(rows):
+    scores = [row["score"] for row in rows if isinstance(row.get("score"), (int, float))]
+    if not scores:
+        return
+    minimum = max(25, max(scores) * 0.28)
+    for index, row in enumerate(rows[:15]):
+        artist, title, score = row.get("artist_credit_name"), row.get("recording_name"), row.get("score")
+        if artist and title and isinstance(score, (int, float)) and score >= minimum:
+            yield artist, title, 15 - index
+
+
 def get_personalized_recommendations(
     seed_tracks: list[dict], liked_ids: set, *, page: int = 0, exclude: set[str] | None = None,
 ) -> dict:
     liked_sigs = db.get_liked_sigs()
     dis = db.get_dislike_filters()
-    seen = set(exclude or ())
-    names = {}
-    favorites, history, favorite_tracks = {}, {}, {}
-    for track in seed_tracks:
-        name = _primary_credit(track["artist"])
-        name = ARTIST_ALIASES.get(_search_text(name), name)
-        key = _artist_key(name)
-        if not key or name == "Исполнитель" or db.normalize_artist(name) in dis["artists"]:
-            continue
-        names.setdefault(key, name)
-        if track.get("liked") or track["video_id"] in liked_ids:
-            favorites[key] = favorites.get(key, 0) + 1
-            favorite_tracks.setdefault(key, []).append(track)
-            seen.add(wave_track_key(track))
-        else:
-            history[key] = min(4, history.get(key, 0) + min(track.get("play_count") or 1, 2))
-
-    weights = favorites or history
-    ranked = sorted(weights, key=weights.get, reverse=True)
-    basis = ", ".join(names[key] for key in ranked[:3])
-    known = set(favorites or history)
-    if not ranked:
-        for name in ("Земфира", "Баста", "Кино", "Три дня дождя", "Скриптонит", "Linkin Park"):
+    names, favorites, history = _wave_seeds(seed_tracks, liked_ids, dis["artists"])
+    taste = favorites or history
+    recent = list(taste)
+    basis = ", ".join(names[key] for key in recent[:3])
+    if not recent:
+        for name in ("Земфира", "Баста", "Кино"):
             if db.normalize_artist(name) not in dis["artists"]:
                 key = _artist_key(name)
-                names[key] = name
-                ranked.append(key)
-
-    if not ranked:
+                names[key], taste[key] = name, []
+        recent = list(taste)
+    if not recent:
         return {"tracks": [], "basis": basis}
-    primary = [ranked[(page * 2 + i) % len(ranked)] for i in range(min(4, len(ranked)))]
-    if ranked[0] not in primary:
-        primary[-1] = ranked[0]
-    similarity_jobs = {}
-    for key in [key for key in primary if key in favorite_tracks][:2]:
-        tracks = favorite_tracks[key]
-        seed = tracks[page % len(tracks)]
-        future = _wave_executor.submit(_similar_recordings, seed["artist"], seed["title"])
-        similarity_jobs[future] = (key, "similar")
-    artist_ids = {}
-    for key, artist_id in _catalog_jobs(
-        {_wave_executor.submit(_deezer_artist_id, names[key]): key for key in primary}, 3.2
-    ):
-        if artist_id:
-            artist_ids[key] = artist_id
 
-    jobs = similarity_jobs
-    for key in primary:
-        if key in artist_ids:
-            artist_id = artist_ids[key]
-            for endpoint, limit in (("radio", 70), ("related", 24), ("top", 36)):
-                jobs[_wave_executor.submit(_deezer_rows, f"artist/{artist_id}/{endpoint}", limit=limit)] = (key, endpoint)
+    # The newest saved like always anchors the next page, even with a large library.
+    rotated = recent[1:]
+    offset = (page * 2) % len(rotated) if rotated else 0
+    strongest = max(recent, key=lambda key: len(taste[key]))
+    selected = list(dict.fromkeys([recent[0], *rotated[offset:offset + 2], strongest, *rotated]))[:4]
+    priority = {key: 30 - index * 6 + min(4, len(taste[key])) for index, key in enumerate(selected)}
+    excluded = set(exclude or ())
+    excluded.update(wave_track_key(track) for tracks in favorites.values() for track in tracks)
+    seeds = {
+        key: taste[key][(page if key != recent[0] else 0) % len(taste[key])]
+        for key in selected if taste[key]
+    }
+    specific = {
+        _wave_executor.submit(_similar_recordings, seeds[key]["artist"], seeds[key]["title"]): (key, "similar")
+        for key in selected[:2] if key in favorites
+    }
+    discovery = {}
+    familiar = {}
+    relationships = {}
+    related_names = set()
+    artist_ids = {
+        key: artist_id for key, artist_id in _catalog_jobs({
+            _wave_executor.submit(_wave_artist_id, names[key], seeds.get(key), liked_sigs, dis): key
+            for key in selected
+        }, 3.4) if artist_id
+    }
+
+    def collect(track, score, is_discovery=False, rank_floor=0):
+        if not track or track.get("catalog_rank", 0) < rank_floor:
+            return
+        artist, title = track["artist"], track["title"]
+        artist_key = _artist_key(artist)
+        key = wave_track_key(track)
+        if (key in excluded or db.normalize_sig(artist, title) in liked_sigs | dis["sigs"]
+                or track["video_id"] in dis["ids"] or db.normalize_artist(artist) in dis["artists"]
+                or _recording_versions(title, track.get("catalog_version", ""))
+                or re.search(r"\b(tribute|karaoke|трибьют|караоке)\b", _search_key(artist))
+                or (is_discovery and artist_key in taste)):
+            return
+        pool = (discovery if is_discovery else familiar).setdefault(artist_key, {})
+        rating = (score, track.get("catalog_rank", 0))
+        if key not in pool or rating > pool[key][0]:
+            pool[key] = (rating, {**track, "wave_key": key})
+
+    jobs = specific
+    for key in selected:
+        artist_id = artist_ids.get(key)
+        if artist_id:
+            jobs[_wave_executor.submit(_deezer_rows, f"artist/{artist_id}/top", limit=42)] = (key, "top")
+            jobs[_wave_executor.submit(_deezer_rows, f"artist/{artist_id}/related", limit=12)] = (key, "related")
         else:
             jobs[_wave_executor.submit(_apple_songs, names[key])] = (key, "apple")
-    pools = {}
-    related = {}
-    genres = {}
-    similar_titles = {}
-    familiar_ids = {f"dz_art_{artist_ids[key]}" for key in known if key in artist_ids}
 
-    def collect(track, score):
-        if not track:
-            return
-        artist = track["artist"]
-        key = wave_track_key(track)
-        signature = db.normalize_sig(artist, track["title"])
-        if (key in seen or signature in dis["sigs"] or track["video_id"] in dis["ids"]
-                or db.normalize_artist(artist) in dis["artists"]
-                or _recording_versions(track["title"], track.get("catalog_version", ""))
-                or re.search(r"\b(tribute|karaoke|трибьют|караоке)\b", _search_key(artist))):
-            return
-        artist_key = _artist_key(artist)
-        is_familiar = artist_key in known or track.get("artist_id") in familiar_ids
-        pool = pools.setdefault((is_familiar, artist_key), {})
-        score = (score, track.get("catalog_rank", 0))
-        if key not in pool or score > pool[key][0]:
-            pool[key] = (score, {**track, "wave_key": key})
-
-    for (key, source), rows in _catalog_jobs(jobs, 3.6):
-        strength = weights.get(key, 1)
+    similar_tracks = {}
+    for (key, source), rows in _catalog_jobs(jobs, 3.5):
         if source == "similar":
-            for index, row in enumerate(rows[:30]):
-                artist = row.get("artist_credit_name")
-                title = row.get("recording_name")
-                if not artist or not title or _artist_key(artist) in known:
-                    continue
+            for artist, title, rank in _wave_suggestions(rows):
                 track_key = wave_track_key({"artist": artist, "title": title})
-                if track_key in seen:
+                if track_key in excluded or _artist_key(artist) in taste:
                     continue
-                score = 200 + 30 - index + strength
-                if track_key not in similar_titles or score > similar_titles[track_key][0]:
-                    similar_titles[track_key] = (score, artist, title)
+                rating = 130 + priority[key] + rank
+                if track_key not in similar_tracks or rating > similar_tracks[track_key][0]:
+                    similar_tracks[track_key] = (rating, artist, title)
             continue
         if source == "related":
-            for index, row in enumerate(rows):
+            for position, row in enumerate(rows[:8]):
                 artist = row.get("name") or ""
-                artist_id = row.get("id")
-                if artist and isinstance(artist_id, int) and _artist_key(artist) not in known:
-                    score = strength * (len(rows) - index)
-                    related[artist_id] = related.get(artist_id, 0) + score
+                artist_id, fans = row.get("id"), row.get("nb_fan")
+                artist_key = _artist_key(artist)
+                if (not artist_key or artist_key in taste or db.normalize_artist(artist) in dis["artists"]
+                        or not isinstance(artist_id, int) or not isinstance(fans, int) or fans < 10000):
+                    continue
+                related_names.add(artist_key)
+                score = 85 + priority[key] - position * 3
+                relationships[artist_id] = max(score, relationships.get(artist_id, 0))
             continue
         for row in rows:
             if source == "apple":
                 track = _format_itunes_catalog_item(row, liked_sigs, dis, True)
                 if not track or _artist_key(track["artist"]) != key:
                     continue
-                if track["genre"]:
-                    genres[track["genre"]] = max(genres.get(track["genre"], 0), strength)
             else:
                 track = _format_deezer_track(row, liked_sigs, dis)
-            collect(track, (120 if source == "radio" else 65) + strength)
+                if not track or track["artist_id"] != f"dz_art_{artist_ids[key]}":
+                    continue
+            collect(track, priority[key])
 
-    ranked_similar = sorted(similar_titles.items(), key=lambda item: item[1][0], reverse=True)
-    if ranked_similar:
-        existing = {key: track for pool in pools.values() for key, (_, track) in pool.items()}
-        similar_jobs = {}
-        for key, (score, artist, title) in ranked_similar[:12]:
-            if key in existing:
-                collect(existing[key], score)
-            elif len(similar_jobs) < 5:
-                job = _wave_executor.submit(_catalog_recording, artist, title, liked_sigs, dis)
-                similar_jobs[job] = score
-        for score, track in _catalog_jobs(similar_jobs, 2.4):
-            collect(track, score)
-
-    discovery_count = sum(len(pool) for (familiar, _), pool in pools.items() if not familiar)
-    if discovery_count < 24:
-        related_ids = sorted(related, key=related.get, reverse=True)
-        offset = (page * 4) % max(1, len(related_ids))
-        choices = (related_ids[offset:] + related_ids[:offset])[:5]
-        more = {_wave_executor.submit(_deezer_rows, f"artist/{artist_id}/top", limit=24): related[artist_id]
-                for artist_id in choices}
-        for key in primary:
-            for artist in SIMILAR_ARTISTS_GRAPH.get(names[key].casefold(), [])[:4]:
-                if _artist_key(artist) not in known and len(more) < 8:
-                    more[_wave_executor.submit(_apple_songs, artist)] = artist
-        for relation, rows in _catalog_jobs(more, 2.8):
-            for row in rows:
-                if isinstance(relation, str):
-                    track = _format_itunes_catalog_item(row, liked_sigs, dis, True)
-                    if not track or _artist_key(track["artist"]) != _artist_key(relation):
-                        continue
-                else:
-                    track = _format_deezer_track(row, liked_sigs, dis)
-                collect(track, 95)
-
-    if not any(pool for (familiar, _), pool in pools.items() if not familiar) and genres:
-        genre = max(genres, key=genres.get)
-        for _, rows in _catalog_jobs({_wave_executor.submit(_apple_songs, genre): genre}, 2):
-            for row in rows:
-                if row.get("primaryGenreName") == genre:
-                    collect(_format_itunes_catalog_item(row, liked_sigs, dis, True), 30)
-
-    def round_robin(familiar):
-        choices = [sorted(pool.values(), key=lambda item: item[0])[-3:]
-                   for (is_familiar, _), pool in pools.items() if is_familiar == familiar]
-        while choices:
-            choices.sort(key=lambda pool: pool[-1][0], reverse=True)
-            for pool in choices:
-                yield pool.pop()[1]
-            choices = [pool for pool in choices if pool]
-
-    discoveries, familiar = round_robin(False), round_robin(True)
-    tracks = []
-    from_library = 0
-    for position in range(20):
-        track = None
-        if position % 4 == 3 and from_library < 5:
-            track = next(familiar, None)
-            from_library += track is not None
-        if track is None:
-            track = next(discoveries, None)
-        if track is None and from_library < 5:
-            track = next(familiar, None)
-            from_library += track is not None
-        if track is None:
-            break
-        if track["wave_key"] in seen:
+    lookups = {}
+    for score, artist, title in sorted(similar_tracks.values(), reverse=True)[:6]:
+        job = _wave_executor.submit(_catalog_recording, artist, title, liked_sigs, dis)
+        rank_floor = 300000 if _artist_key(artist) in related_names else 500000
+        lookups[job] = (score, rank_floor, "song")
+    related_ids = sorted(relationships, key=relationships.get, reverse=True)
+    if related_ids:
+        offset = (page * 3) % len(related_ids)
+        choices = list(dict.fromkeys([related_ids[0], *related_ids[offset:], *related_ids[:offset]]))[:6]
+        for artist_id in choices:
+            job = _wave_executor.submit(_deezer_rows, f"artist/{artist_id}/top", limit=26)
+            lookups[job] = (relationships[artist_id], 300000, f"dz_art_{artist_id}")
+    for (score, rank_floor, artist_id), result in _catalog_jobs(lookups, 3.4):
+        if artist_id == "song":
+            collect(result, score, True, rank_floor)
             continue
-        seen.add(track["wave_key"])
+        for row in result:
+            track = _format_deezer_track(row, liked_sigs, dis)
+            if track and track["artist_id"] == artist_id:
+                collect(track, score, True, rank_floor)
+
+    def take_turns(pools, per_artist):
+        ordered = [sorted(pool.values(), key=lambda item: item[0])[-per_artist:]
+                   for pool in pools.values()]
+        while ordered:
+            ordered.sort(key=lambda pool: pool[-1][0], reverse=True)
+            for pool in ordered:
+                track = pool.pop()[1]
+                key = track["wave_key"]
+                if key not in excluded:
+                    yield track
+            ordered = [pool for pool in ordered if pool]
+
+    familiar_tracks = take_turns(familiar, 8)
+    discoveries = take_turns(discovery, 2)
+    tracks = []
+    discovery_count = 0
+    for index in range(20):
+        track = None
+        if index % 2 and discovery_count < 9:
+            track = next(discoveries, None)
+            discovery_count += track is not None
+        if not track:
+            track = next(familiar_tracks, None)
+        if not track and discovery_count < 9:
+            track = next(discoveries, None)
+            discovery_count += track is not None
+        if not track:
+            break
+        excluded.add(track["wave_key"])
         track.pop("catalog_rank", None)
         track.pop("catalog_version", None)
         tracks.append(track)

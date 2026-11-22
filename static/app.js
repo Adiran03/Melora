@@ -34,6 +34,8 @@ let playbackRecorded = false;
 let mediaArtwork;
 let waveRequestId = 0;
 let waveRequest;
+let waveAbortController;
+let waveRefreshing = false;
 let wavePage = 0;
 let waveExhausted = false;
 let waveAdvance;
@@ -529,37 +531,53 @@ function waveKey(track) {
 
 function updateWaveBasis() {
     const basis = document.getElementById("wave-basis");
-    basis.textContent = waveBasis && queueOrigin === "wave" ? `В основе волны · ${waveBasis}` : "";
+    basis.textContent = "";
+    if (queueOrigin === "wave") {
+        if (waveRefreshing) basis.textContent = "Обновляем волну…";
+        else if (waveBasis) basis.textContent = `В основе волны · ${waveBasis}`;
+    }
     basis.classList.toggle("hidden", !basis.textContent);
 }
 
 function invalidateWave() {
     waveRequestId++;
+    waveAbortController?.abort();
+    waveAbortController = null;
     waveRequest = null;
     waveAdvance = null;
     wavePage = 0;
     waveExhausted = false;
+    waveRefreshing = false;
 }
 
 async function fetchWaveTracks(existing, stillCurrent) {
+    const controller = new AbortController();
+    waveAbortController = controller;
     const excluded = new Set([...heardInWave, ...existing.map(waveKey)]);
-    for (let attempt = 0; attempt < 3; attempt++) {
-        const data = await requestJson("/api/recommendations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ page: wavePage++, exclude: [...excluded] })
-        });
-        if (!stillCurrent()) return null;
-        const tracks = [];
-        for (const track of data.tracks || []) {
-            const key = waveKey(track);
-            if (excluded.has(key)) continue;
-            excluded.add(key);
-            tracks.push(track);
+    let basis = "";
+    try {
+        for (let attempt = 0; attempt < 3 && stillCurrent(); attempt++) {
+            const data = await requestJson("/api/recommendations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ page: wavePage++, exclude: [...excluded] }),
+                signal: controller.signal
+            });
+            if (!stillCurrent()) return null;
+            basis = data.basis || "";
+            const tracks = [];
+            for (const track of data.tracks || []) {
+                const key = waveKey(track);
+                if (excluded.has(key)) continue;
+                excluded.add(key);
+                tracks.push(track);
+            }
+            if (tracks.length) return { tracks, basis };
         }
-        if (tracks.length) return { tracks, basis: data.basis };
+        return { tracks: [], basis };
+    } finally {
+        if (waveAbortController === controller) waveAbortController = null;
     }
-    return { tracks: [], basis: "" };
 }
 
 function refreshQueueView() {
@@ -575,12 +593,9 @@ function extendWave() {
     const stillCurrent = () => waveId === waveRequestId && queueOrigin === "wave";
     const request = fetchWaveTracks(queue, stillCurrent).then(data => {
         if (!data || !stillCurrent()) return;
-        if (!data.tracks.length) {
-            waveExhausted = true;
-            return;
-        }
-        queue = [...queue, ...data.tracks];
         waveBasis = data.basis;
+        waveExhausted = !data.tracks.length;
+        queue = [...queue, ...data.tracks];
         updateWaveBasis();
         refreshQueueView();
     }).finally(() => {
@@ -647,15 +662,31 @@ async function loadWave(autoPlay = false, refresh = false) {
 }
 
 function refreshWaveAfterLike() {
-    if (queueOrigin !== "wave") {
-        invalidateWave();
+    invalidateWave();
+    if (queueOrigin !== "wave") return;
+    if (!currentTrack) {
+        if (currentMode === "wave") loadWave(false, true);
         return;
     }
-    const kept = queue.slice(0, currentIndex + 1);
-    queue = kept;
-    invalidateWave();
+    queue = queue.slice(0, currentIndex + 1);
+    waveBasis = "";
+    waveRefreshing = true;
+    updateWaveBasis();
     refreshQueueView();
-    extendWave().catch(() => {});
+    const refreshId = waveRequestId;
+    const playbackId = playRequestId;
+    extendWave().then(() => {
+        if (refreshId === waveRequestId && playbackId === playRequestId
+            && playbackWanted && audio.ended && !waveAdvance) nextTrack();
+    }).catch(error => {
+        if (error.name !== "AbortError" && refreshId === waveRequestId) {
+            showHud("Лайк сохранён. Волну пока не удалось обновить");
+        }
+    }).finally(() => {
+        if (refreshId !== waveRequestId) return;
+        waveRefreshing = false;
+        updateWaveBasis();
+    });
 }
 
 async function dislikeTrack(track) {
