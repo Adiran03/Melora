@@ -1,9 +1,16 @@
+import os
 import re
+import sys
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 
-DB_PATH = Path(__file__).parent / "music_data.db"
+def user_data_directory():
+    local = Path(os.environ.get("LOCALAPPDATA") or Path.home())
+    return Path(os.environ.get("MELORA_DATA_DIR") or local / "Melora")
+
+
+DB_PATH = (user_data_directory() if getattr(sys, "frozen", False) else Path(__file__).parent) / "music_data.db"
 
 @contextmanager
 def get_conn():
@@ -26,6 +33,7 @@ def normalize_artist(artist: str) -> str:
     return re.sub(r"[^a-zа-яё0-9]+", "", (artist or "").split(",")[0].split("&")[0].lower())
 
 def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript("""

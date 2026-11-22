@@ -125,8 +125,10 @@ internal sealed class PlayerWindow : Form
                 return;
             var browser = new WebView2 { Dock = DockStyle.Fill };
             Controls.Add(browser);
-            string profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Melora", "WebView2");
+            string data = Environment.GetEnvironmentVariable("MELORA_DATA_DIR");
+            if (String.IsNullOrWhiteSpace(data))
+                data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Melora");
+            string profile = Path.Combine(data, "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(null, profile);
             if (closing.IsCancellationRequested)
                 return;
@@ -156,6 +158,18 @@ internal sealed class PlayerWindow : Form
 
     private Process StartBackend()
     {
+        string bundledServer = Path.Combine(root, "backend", "Melora.Server.exe");
+        if (File.Exists(bundledServer))
+        {
+            return Process.Start(new ProcessStartInfo
+            {
+                FileName = bundledServer,
+                Arguments = "--native \"" + readyPath + "\"",
+                WorkingDirectory = root,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
         string entry = Path.Combine(root, "desktop.py");
         if (!File.Exists(entry))
             throw new FileNotFoundException("Файл desktop.py должен быть в папке приложения.");

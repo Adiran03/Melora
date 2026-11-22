@@ -128,7 +128,9 @@ def report_error(message, ready_file=None):
 def main(app=None, ready_file=None):
     try:
         if sys.stderr is None:
-            log_dir = Path(os.getenv("LOCALAPPDATA") or Path(__file__).parent) / "Melora"
+            from database import user_data_directory
+
+            log_dir = user_data_directory()
             log_dir.mkdir(parents=True, exist_ok=True)
             logging.basicConfig(filename=log_dir / "melora.log", encoding="utf-8", level=logging.WARNING)
         run(app, ready_file)

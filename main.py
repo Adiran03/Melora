@@ -6,6 +6,7 @@ import os
 import logging
 import re
 import sqlite3
+import sys
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 import threading
@@ -25,9 +26,12 @@ import music_engine as engine
 app = FastAPI(title="Melora")
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
-app.state.revision = sha256(b"".join(
-    Path(module_file).read_bytes() for module_file in (__file__, db.__file__, engine.__file__)
-)).hexdigest()[:12]
+if getattr(sys, "frozen", False):
+    app.state.revision = "installed-" + (STATIC_DIR.parent / "app_revision.txt").read_text(encoding="ascii").strip()
+else:
+    app.state.revision = sha256(b"".join(
+        Path(module_file).read_bytes() for module_file in (__file__, db.__file__, engine.__file__)
+    )).hexdigest()[:12]
 
 _media_seq = 0
 _media_action = ""

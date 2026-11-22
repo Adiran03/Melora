@@ -24,7 +24,7 @@ try {
         foreach ($file in @(
             'lib/net462/Microsoft.Web.WebView2.Core.dll',
             'lib/net462/Microsoft.Web.WebView2.WinForms.dll',
-            'runtimes/win-x64/native/WebView2Loader.dll'
+            'runtimes/win-x64/native/WebView2Loader.dll', 'LICENSE.txt', 'NOTICE.txt'
         )) {
             $entry = $archive.GetEntry($file)
             if (!$entry) { throw "WebView2 SDK package is missing $file" }
