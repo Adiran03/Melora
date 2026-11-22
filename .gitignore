@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.vscode/
+.env
+.env.*
+music_data.db
+music_data.db-*
+*.log
+/Melora.exe
+/launcher/runtime/
+/eligibility-antigravity-patcher/

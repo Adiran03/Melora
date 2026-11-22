@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Melora</title>
+    <link rel="icon" href="/static/melora.ico">
+    <script>
+        try {
+            const theme = localStorage.getItem("muzon-theme");
+            if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+        } catch {}
+    </script>
+    <link rel="stylesheet" href="/static/style.css?v=54">
+</head>
+<body>
+    <header class="top-nav">
+        <button type="button" class="brand" id="brand-wave-btn" title="К плееру">
+            <img class="brand-mark" src="/static/melora-mark.png" alt="" width="27" height="27">
+            Melora
+        </button>
+
+        <nav class="top-pills">
+            <button class="pill-btn active" id="nav-wave">Моя волна</button>
+            <button class="pill-btn" id="nav-likes">Любимое</button>
+            <button class="pill-btn" id="nav-playlists">Плейлисты</button>
+        </nav>
+
+        <div class="top-right-slot">
+            <button id="top-back-player-btn" class="mini-icy-btn hidden">К плееру</button>
+            <button id="theme-btn" class="theme-btn" type="button" aria-label="Включить тёмную тему" title="Включить тёмную тему">
+                <svg class="ico theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.9 13A9 9 0 1 1 11 3.1 7 7 0 0 0 20.9 13Z"/></svg>
+                <svg class="ico theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <main class="center-stage">
+        <div class="player-hero">
+            <div class="player-details">
+                <div class="track-header">
+                    <h1 class="center-title" id="center-title">Загружаем твою волну...</h1>
+                    <p id="wave-basis" class="wave-basis hidden"></p>
+                    <div class="center-artist" id="center-artist" title="Открыть карточку артиста">Melora</div>
+                </div>
+
+                <div class="hero-circles">
+                    <button id="prev-btn" class="circle-ctrl side-circle" title="Предыдущий (←)">
+                        <svg class="ico" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+                    </button>
+
+                    <button id="play-pause-btn" class="circle-ctrl main-circle" title="Пауза / Старт (Пробел)">
+                        <svg class="ico ico-fill" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </button>
+
+                    <button id="next-btn" class="circle-ctrl side-circle" title="Следующий (→)">
+                        <svg class="ico" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                    </button>
+                </div>
+
+                <div class="quick-actions">
+                    <button id="like-btn" class="action-chip" title="Нравится (L)">
+                        <svg class="ico" viewBox="0 0 24 24"><path d="M12 20.5s-7-4.4-9-8.8C1.4 8.2 3.8 4.5 7.5 4.5c2 0 3.6 1 4.5 2.4.9-1.4 2.5-2.4 4.5-2.4 3.7 0 6.1 3.7 4.5 7.2-2 4.4-9 8.8-9 8.8Z"/></svg>
+                        <span>Нравится</span>
+                    </button>
+                    <button id="dislike-btn" class="action-chip dislike-chip" title="Дизлайк — больше не предлагать подобные треки (D)">
+                        <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg>
+                        <span>Дизлайк</span>
+                    </button>
+                    <button id="add-pl-btn" class="action-chip" title="Добавить в плейлист">
+                        <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                        <span>В плейлист</span>
+                    </button>
+                    <button id="refresh-wave-btn" class="action-chip" title="Обновить рекомендации">
+                        <svg class="ico" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8m0-5v5h5M4 13a8 8 0 0 0 14.5 4.5L20 16m0 5v-5h-5"/></svg>
+                        <span>Обновить волну</span>
+                    </button>
+                    <button id="exit-search-btn" class="action-chip exit-search-chip hidden" title="Выйти из режима поиска и вернуться в Мою волну">
+                        <svg class="ico" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                        <span>Выйти из поиска</span>
+                    </button>
+                </div>
+            </div>
+            <button id="hero-cover-btn" class="hero-cover" type="button" aria-label="Открыть очередь">
+                <img id="hero-cover-img" alt="" src="/static/cover-placeholder.svg">
+            </button>
+        </div>
+    </main>
+
+    <section id="drawer-panel" class="drawer-panel hidden">
+        <div class="drawer-head">
+            <div class="drawer-title-wrap">
+                <button id="drawer-back-btn" class="mini-icy-btn hidden">← Назад</button>
+                <h2 id="drawer-title">Поиск музыки</h2>
+                <button id="drawer-create-pl-btn" class="mini-icy-btn hidden">+ Новый плейлист</button>
+                <button id="drawer-delete-pl-btn" class="mini-berry-btn hidden">Удалить плейлист</button>
+            </div>
+            <div class="drawer-right-controls">
+                <button id="drawer-exit-search-btn" class="mini-berry-btn hidden">✕ Выйти из поиска</button>
+                <button id="close-drawer-btn" class="close-drawer-btn" title="Свернуть к плееру">⌄</button>
+            </div>
+        </div>
+
+        <div id="search-modes" class="search-modes hidden" role="group" aria-label="Тип поиска">
+            <button class="pl-chip" type="button" data-search-kind="tracks" aria-pressed="true">Песни</button>
+            <button class="pl-chip" type="button" data-search-kind="artists" aria-pressed="false">Артисты</button>
+        </div>
+
+        <div id="standard-view">
+            <div id="playlists-chips" class="playlists-chips hidden"></div>
+
+            <div id="artists-block" class="artists-block hidden">
+                <div class="block-label">ИСПОЛНИТЕЛИ</div>
+                <div id="artists-row" class="artists-row"></div>
+            </div>
+
+            <div id="tracks-container" class="tracks-container"></div>
+        </div>
+
+        <div id="artist-profile-view" class="artist-profile-view hidden">
+            <div class="artist-hero-banner">
+                <img id="ap-photo" src="/static/cover-placeholder.svg" alt="">
+                <div class="artist-hero-grad"></div>
+                <div class="artist-hero-info">
+                    <div class="ap-badge">ИСПОЛНИТЕЛЬ</div>
+                    <h1 id="ap-name" class="ap-name">Артист</h1>
+                    <div class="ap-meta-row">
+                        <span id="ap-subs" class="ap-subs"></span>
+                        <button id="ap-play-all-btn" class="ap-play-btn">▶ Слушать популярное</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ap-section">
+                <div class="block-label">ПОПУЛЯРНЫЕ ПЕСНИ</div>
+                <div id="ap-songs-list" class="tracks-container"></div>
+            </div>
+
+            <div class="ap-section" id="ap-albums-section">
+                <div class="block-label">АЛЬБОМЫ И РЕЛИЗЫ</div>
+                <div id="ap-albums-grid" class="albums-grid"></div>
+            </div>
+
+            <div class="ap-section" id="ap-similar-section">
+                <div class="block-label">ПОХОЖИЕ АРТИСТЫ</div>
+                <div id="ap-similar-row" class="artists-row"></div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="bottom-dock">
+        <div class="dock-cover" id="dock-cover-btn" title="Открыть очередь">
+            <img id="cover-img" src="/static/cover-placeholder.svg" alt="Обложка">
+            <div class="cover-overlay-hint">Очередь</div>
+        </div>
+
+        <div class="dock-progress-zone">
+            <div class="dock-transport">
+                <button id="dock-prev-btn" class="dock-ctrl-btn dock-side-btn" title="Предыдущий">
+                    <svg class="ico" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <button id="dock-play-btn" class="dock-ctrl-btn dock-main-btn" title="Пауза / Старт">
+                    <svg class="ico ico-fill" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <button id="dock-next-btn" class="dock-ctrl-btn dock-side-btn" title="Следующий">
+                    <svg class="ico" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+            </div>
+
+            <div class="dock-center-stack">
+                <div class="dock-top-row">
+                    <div class="dock-now-meta">
+                        <span id="dock-title" class="dock-track-title">Melora</span>
+                        <span class="dock-sep">•</span>
+                        <span id="dock-artist" class="dock-track-artist" title="Открыть карточку артиста">Выбери трек</span>
+                    </div>
+
+                    <div class="vol-row">
+                        <button id="mute-btn" class="vol-icon-btn" title="Звук (M)">
+                            <svg class="ico" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5ZM15.5 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+                        </button>
+                        <input type="range" id="volume-bar" aria-label="Громкость" class="berry-slider" value="80" min="0" max="100">
+                    </div>
+                </div>
+
+                <div class="seek-row">
+                    <span id="cur-time" class="time-num">0:00</span>
+                    <input type="range" id="seek-bar" aria-label="Позиция воспроизведения" class="icy-slider" value="0" min="0" max="100" step="0.1">
+                    <span id="tot-time" class="time-num">0:00</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="dock-search-zone">
+            <svg id="search-btn-ico" class="search-ico" style="cursor:pointer" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" id="search-input" maxlength="160" placeholder="Поиск песен и артистов..." autocomplete="off">
+            <button id="clear-search-btn" class="clear-search-btn hidden" title="Выйти из поиска">✕</button>
+        </div>
+    </footer>
+
+    <div id="playlist-modal" class="modal hidden">
+        <div class="modal-card">
+            <div class="modal-head">Добавить в плейлист</div>
+            <div id="modal-pl-list" class="modal-pl-list"></div>
+            <button id="modal-new-pl-btn" class="mini-icy-btn">+ Создать новый</button>
+            <button id="modal-close-btn" class="modal-cancel-btn">Отмена</button>
+        </div>
+    </div>
+
+    <div id="custom-dialog" class="modal hidden">
+        <div class="modal-card">
+            <div id="dialog-title" class="modal-head">Новый плейлист</div>
+            <input type="text" id="dialog-input" class="dialog-input hidden" placeholder="Введите название...">
+            <p id="dialog-text" class="dialog-text hidden"></p>
+            <div class="dialog-actions">
+                <button id="dialog-ok-btn" class="ap-play-btn" style="flex:1">Подтвердить</button>
+                <button id="dialog-cancel-btn" class="modal-cancel-btn" style="flex:1">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="hud-toast" role="status" class="hud-toast hidden"></div>
+
+    <audio id="audio-player" preload="none"></audio>
+    <script src="/static/app.js?v=54"></script>
+</body>
+</html>
