@@ -1046,8 +1046,45 @@ def _wave_suggestions(rows):
             yield artist, title, 15 - index
 
 
+def _mix_wave_tracks(familiar, discovery, recent_artists):
+    pools = {
+        artist: (is_discovery, sorted(
+            (rating, key, track) for key, (rating, track) in pool.items()
+        )[-limit:])
+        for group, is_discovery, limit in ((familiar, False, 8), (discovery, True, 2))
+        for artist, pool in group.items()
+    }
+    recent = [_artist_key(name) for name in recent_artists[-2:]]
+    want_discovery = False
+    tracks = []
+    seen = set()
+    while pools and len(tracks) < 20:
+        # Keep the page boundary under the same spacing rules as the rest of the queue.
+        eligible = [artist for artist in pools if not recent or artist != recent[-1]]
+        if not eligible:
+            break
+        artist = max(eligible, key=lambda key: (
+            key not in recent,
+            pools[key][0] == want_discovery,
+            pools[key][1][-1][0],
+            key,
+        ))
+        is_discovery, pool = pools[artist]
+        _, track_key, track = pool.pop()
+        if not pool:
+            del pools[artist]
+        if track_key in seen:
+            continue
+        seen.add(track_key)
+        recent = [*recent[-1:], artist]
+        want_discovery = not is_discovery
+        tracks.append(track)
+    return tracks
+
+
 def get_personalized_recommendations(
     seed_tracks: list[dict], liked_ids: set, *, page: int = 0, exclude: set[str] | None = None,
+    recent_artists: list[str] | None = None,
 ) -> dict:
     liked_sigs = db.get_liked_sigs()
     dis = db.get_dislike_filters()
@@ -1097,7 +1134,8 @@ def get_personalized_recommendations(
         artist, title = track["artist"], track["title"]
         artist_key = _artist_key(artist)
         key = wave_track_key(track)
-        if (key in excluded or db.normalize_sig(artist, title) in liked_sigs | dis["sigs"]
+        if (key in excluded or track["video_id"] in excluded
+                or db.normalize_sig(artist, title) in liked_sigs | dis["sigs"]
                 or track["video_id"] in dis["ids"] or db.normalize_artist(artist) in dis["artists"]
                 or _recording_versions(title, track.get("catalog_version", ""))
                 or re.search(r"\b(tribute|karaoke|трибьют|караоке)\b", _search_key(artist))
@@ -1172,38 +1210,10 @@ def get_personalized_recommendations(
             if track and track["artist_id"] == artist_id:
                 collect(track, score, True, rank_floor)
 
-    def take_turns(pools, per_artist):
-        ordered = [sorted(pool.values(), key=lambda item: item[0])[-per_artist:]
-                   for pool in pools.values()]
-        while ordered:
-            ordered.sort(key=lambda pool: pool[-1][0], reverse=True)
-            for pool in ordered:
-                track = pool.pop()[1]
-                key = track["wave_key"]
-                if key not in excluded:
-                    yield track
-            ordered = [pool for pool in ordered if pool]
-
-    familiar_tracks = take_turns(familiar, 8)
-    discoveries = take_turns(discovery, 2)
-    tracks = []
-    discovery_count = 0
-    for index in range(20):
-        track = None
-        if index % 2 and discovery_count < 9:
-            track = next(discoveries, None)
-            discovery_count += track is not None
-        if not track:
-            track = next(familiar_tracks, None)
-        if not track and discovery_count < 9:
-            track = next(discoveries, None)
-            discovery_count += track is not None
-        if not track:
-            break
-        excluded.add(track["wave_key"])
+    tracks = _mix_wave_tracks(familiar, discovery, recent_artists or [])
+    for track in tracks:
         track.pop("catalog_rank", None)
         track.pop("catalog_version", None)
-        tracks.append(track)
     return {"tracks": tracks, "basis": basis}
 
 

@@ -122,6 +122,7 @@ class PlaylistCreateModel(BaseModel):
 class WaveRequest(BaseModel):
     page: int = Field(default=0, ge=0)
     exclude: list[str] = Field(default_factory=list, max_length=20000)
+    recent_artists: list[str] = Field(default_factory=list, max_length=2)
 
 
 class PrefetchModel(BaseModel):
@@ -154,7 +155,8 @@ def api_recommendations():
 @app.post("/api/recommendations")
 def api_wave_page(data: WaveRequest):
     return engine.get_personalized_recommendations(
-        db.get_taste_seeds(), db.get_liked_ids(), page=data.page, exclude=set(data.exclude)
+        db.get_taste_seeds(), db.get_liked_ids(), page=data.page, exclude=set(data.exclude),
+        recent_artists=data.recent_artists,
     )
 
 

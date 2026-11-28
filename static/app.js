@@ -554,13 +554,14 @@ async function fetchWaveTracks(existing, stillCurrent) {
     const controller = new AbortController();
     waveAbortController = controller;
     const excluded = new Set([...heardInWave, ...existing.map(waveKey)]);
+    const recentArtists = existing.slice(-2).map(track => track.artist);
     let basis = "";
     try {
         for (let attempt = 0; attempt < 3 && stillCurrent(); attempt++) {
             const data = await requestJson("/api/recommendations", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ page: wavePage++, exclude: [...excluded] }),
+                body: JSON.stringify({ page: wavePage++, exclude: [...excluded], recent_artists: recentArtists }),
                 signal: controller.signal
             });
             if (!stillCurrent()) return null;
@@ -626,7 +627,7 @@ async function loadWave(autoPlay = false, refresh = false) {
     const stillCurrent = () => waveId === waveRequestId && playbackId === playRequestId && currentMode === "wave";
     if (autoPlay) showHud("Загружаем волну…");
 
-    const request = fetchWaveTracks([], stillCurrent).then(data => {
+    const request = fetchWaveTracks(currentTrack ? [currentTrack] : [], stillCurrent).then(data => {
         if (!data || !stillCurrent()) return;
         const newTracks = data.tracks.filter(track => track.video_id !== currentTrack?.video_id);
         if (!newTracks.length) {
